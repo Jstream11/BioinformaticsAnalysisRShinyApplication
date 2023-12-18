@@ -19,8 +19,7 @@ ui <- fluidPage(
               sidebarLayout(
                 sidebarPanel(
                   fileInput("sample_info", "Upload Sample Information Matrix (CSV)", accept = "csv", multiple = FALSE),
-                  actionButton("load_sample", "Load Sample Data"),
-                  width = 3
+                  width = 2
                 ),
                mainPanel(#creating subtabs
                  tabsetPanel(
@@ -29,10 +28,17 @@ ui <- fluidPage(
                    tabPanel("Metadata Table",
                             dataTableOutput("metadata_table")),
                    tabPanel("Graphs",
-                              selectInput("plot_type", "Choose Plot Type", c("Histogram", "Violin", "Density")),
-                              radioButtons("plot_column", "Choose Column to Plot", ""),
-                              radioButtons("group_by_column", "Choose Column to Group By (Optional)", ""))),plotOutput("graph_output"))
-    )
+                            sidebarLayout(
+                              sidebarPanel(
+                                selectInput("plot_type", "Choose Plot Type", c("Histogram", "Violin", "Density")),
+                                radioButtons("plot_column", "Choose Column to Plot", ""),
+                                radioButtons("group_by_column", "Choose Column to Group By (Optional)", "")),
+                              mainPanel(plotOutput("graph_output")))
+                            )
+                 )
+          )
+        )
+    
     ),
     
     # Counts Matrix Exploration
@@ -40,22 +46,30 @@ ui <- fluidPage(
             sidebarLayout(
               sidebarPanel(
                 fileInput("counts_matrix", "Upload Normalized Counts Matrix (CSV)", multiple = FALSE),
-                width = 3
+                width = 2
               ),
               mainPanel(
                 #create subtabs
                 tabsetPanel(tabPanel("Counts Data Table", 
                                   dataTableOutput("countsdata_table")),
                         tabPanel("Counts Summary", 
-                                 sliderInput("variance_percentile", "Variance Percentile Filter", min = 0, max = 100, value = 50),
-                                 sliderInput("non_zero_threshold", "Non-Zero Samples Filter", min = 1, max = 100, value = 10),
-                                 dataTableOutput("counts_summary_table")),
+                                 sidebarLayout(
+                                   sidebarPanel(
+                                     sliderInput("variance_percentile", "Variance Percentile Filter", min = 0, max = 100, value = 50),
+                                     sliderInput("non_zero_threshold", "Non-Zero Samples Filter", min = 1, max = 100, value = 10)),
+                                   mainPanel(
+                                     dataTableOutput("counts_summary_table")))
+                                 ),
                         tabPanel("Scatter Plots", plotOutput("scatters")),
                         tabPanel("Heatmap", plotOutput("heatmap")),
                         tabPanel("PCA",
-                                 sliderInput("principle_component_x","Principle component(x) to plot: ", min=1, max=100, value =1),
-                                 sliderInput("principle_component_y","Principle component(y) to plot: ", min=1, max=100, value =1),
-                                 plotOutput("pca_plot"))
+                                 sidebarLayout(
+                                   sidebarPanel(
+                                     sliderInput("principle_component_x","Principle component(x) to plot: ", min=1, max=100, value =1),
+                                     sliderInput("principle_component_y","Principle component(y) to plot: ", min=1, max=100, value =1)),
+                                   mainPanel(
+                                     plotOutput("pca_plot")))
+                                 )
                         )
               )
       )
@@ -66,20 +80,63 @@ ui <- fluidPage(
              sidebarLayout(
                sidebarPanel(
                  fileInput("diff_expr_results", "Upload Differential Expression Results (CSV)", multiple = FALSE, accept = ".csv"),
-                 width = 3
+                 width = 2
                  ),
                mainPanel(
                  tabsetPanel(
                    tabPanel(
                      "Data Table", dataTableOutput("DE_data_table")),
                    tabPanel("Plots",
-                     radioButtons("de_plot_choice", "Choose Plot", choices = c("raw p-value histogram", "log2fc histogram", "volcano plot")),
-                     sliderInput("padj_threshold", "Choose padj threshold", min=0, max=300, value= 100),
-                     plotOutput("DE_plots"))
+                     sidebarLayout(
+                       sidebarPanel(
+                         radioButtons("de_plot_choice", "Choose Plot", choices = c("raw p-value histogram", "log2fc histogram", "volcano plot")),
+                         sliderInput("padj_threshold", "Choose padj threshold", min=0, max=300, value= 100)),
+                       mainPanel(
+                         plotOutput("DE_plots")))
+                     )
                  )
                )
              )
-            )
+            ),
+    
+    # GSEA
+    tabPanel("GSEA",
+             sidebarLayout(
+               sidebarPanel(
+                 fileInput("fgsea_results", "Upload FGSEA Results (CSV)", multiple = FALSE, accept = ".csv"),
+                 width = 2
+               ),
+               mainPanel(
+                 tabsetPanel(
+                   tabPanel(
+                     "Top Pathways", 
+                     sidebarLayout(
+                       sidebarPanel(
+                         sliderInput("pathways_padj_threshold", "Choose padj threshold", min=0, max=1, value= 0, step=0.005),
+                         width=3),
+                       mainPanel(
+                         plotOutput("top_pathways_plot")))),
+                   tabPanel(
+                     "Data Table",
+                     sidebarLayout(
+                       sidebarPanel(
+                         radioButtons("NES_status", "Choose NES Status", choices = c("all", "positive", "negative")),
+                         sliderInput("gsea_dt_padj_threshold", "Choose padj threshold", min=0, max=1, value= 1, step = 0.005),
+                         width = 3,
+                         downloadButton("gsea_dt_download", "Download")),
+                       mainPanel(
+                         dataTableOutput("GSEA_table")))),
+                   tabPanel("Plots",
+                            sidebarLayout(
+                              sidebarPanel(
+                                sliderInput("gsea_scatter_padj_threshold", "Choose padj threshold", min=0, max=1, value= 1, step = 0.005),
+                                width = 3),
+                              mainPanel(
+                                plotOutput("GSEA_scatter"))))
+                 )
+               )
+             )
+    )
   )
 )
 
@@ -90,7 +147,7 @@ server <- function(input, output, session) {
   # Load and preprocess data
   meta_data <- reactive({
     #check if the button 
-    req(input$load_sample)
+    req(input$sample_info)
     sample_info <- read.csv(input$sample_info$datapath)
     return(sample_info)
   })
@@ -235,7 +292,7 @@ server <- function(input, output, session) {
   # Differential Expression
   # Load and preprocess data
   DE_data <- reactive({
-    #check if the button 
+    #check if file uploaded 
     req(input$diff_expr_results)
     DE_matrix <- read.csv(input$diff_expr_results$datapath)
     return(DE_matrix)
@@ -257,6 +314,42 @@ server <- function(input, output, session) {
       )
     }
   )
+  
+  #GSEA
+  #Load and preprocess data
+  fgsea_data <- reactive({
+    #check if file uploaded
+    req(input$fgsea_results)
+    fgsea_matrix <- read.csv(input$fgsea_results$datapath)
+    return(fgsea_matrix)
+  })
+  
+  output$top_pathways_plot <- renderPlot(
+    return(top_pathways(fgsea_data(), input$pathways_padj_threshold))
+  )
+  
+  output$GSEA_table <- renderDataTable({
+    filtered_pathways <- pathway_filter(fgsea_data(), input$gsea_dt_padj_threshold, input$NES_status)
+    return(filtered_pathways)
+  })
+  
+  output$gsea_dt_download <- downloadHandler(
+    filename = function() {
+      # Specify the filename for the downloaded file
+      paste("filtered_gsea_results_", Sys.Date(), ".csv", sep = "")
+    },
+    content = function(file) {
+      # Write the data to a CSV file
+      filtered_pathways <- pathway_filter(fgsea_data(), input$gsea_dt_padj_threshold, input$NES_status)
+      write.csv(filtered_pathways, file)
+    }
+  )
+  
+  output$GSEA_scatter <- renderPlot({
+    plot_data <- fgsea_data()
+    return(gsea_scatter(plot_data, input$gsea_scatter_padj_threshold))
+  })
+  
 }
 
 # Run the application

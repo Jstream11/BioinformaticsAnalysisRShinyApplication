@@ -1,5 +1,6 @@
 library(tidyverse)
 library(ggplot2)
+library(fgsea)
 
 #counts functions
 counts_filter <- function(counts_df, var_percentile, nonZero_threshold){
@@ -136,5 +137,86 @@ plot_volcano <- function(de_data, padj_threshold){
     geom_point() +
     labs(title = 'Volcano Plot of DESeq2 differential expression results (vP0 vs. vAd)', y = '-log10(padj)', x = 'log2FoldChange')
   return(plot)
+}
+
+#GSEA
+top_pathways <- function(fgsea_results, padj_threshold){
+  num_paths=50
+  fgsea_results <- fgsea_results %>% mutate(
+    NES_plot_status = ifelse(
+      NES < 0, "neg", "pos")
+  )
+  top_ten_pathways <- fgsea_results %>% 
+    arrange(NES)%>%
+    head(num_paths)
+  bottom_ten_pathways <- fgsea_results %>% 
+    arrange(NES)%>%
+    tail(num_paths)
+  pathways <- rbind(top_ten_pathways, bottom_ten_pathways)
+  
+  top_pathways <- pathways %>% 
+    filter(padj<padj_threshold)
+  
+  plot <- ggplot(top_pathways, aes(y = fct_reorder(pathway, NES), x = NES, fill=NES_plot_status)) +
+    geom_bar(stat='identity', width = 0.5) +
+    labs(title = 'fgsea results for Human MSigDB C2: curated gene set', x = 'Normalized Enrichment Score (NES)', y='pathway') +
+    theme(plot.title = element_text(size = 8),
+          axis.title.x = element_text(size = 7),
+          axis.title.y = element_text(size = 7), 
+          axis.text.y = element_text(size = 4),
+          axis.text.x = element_text(size = 4))+
+    theme(plot.margin = margin(0.1, 0.1, 0.1, 0.1, "pt"))
+  return(plot)
+}
+
+#fgsea_results <- read.csv("FinalProj/fgsea_results.csv")
+pathway_filter <- function(fgsea_results, padj_threshold, NES_status){
+  num_paths=50
+  fgsea_results <- fgsea_results %>% mutate(
+    NES_plot_status = ifelse(
+      NES < 0, "negative", "positive")
+  )
+  top_ten_pathways <- fgsea_results %>% 
+    arrange(NES)%>%
+    head(num_paths)
+  bottom_ten_pathways <- fgsea_results %>% 
+    arrange(NES)%>%
+    tail(num_paths)
+  pathways <- rbind(top_ten_pathways, bottom_ten_pathways)
+  
+  filtered_pathways <- pathways %>% 
+    filter(padj<padj_threshold) 
+  
+  if (NES_status != "all"){
+    filtered_pathways <- pathways %>% filter(NES_plot_status == NES_status)
+  }
+  return(filtered_pathways)
+}
+#pathways <- pathway_filter(fgsea_results, 0.5, "all")
+
+gsea_scatter <- function(fgsea_results, padj_threshold){
+  # num_paths=50
+  # top_ten_pathways <- fgsea_results %>% 
+  #   arrange(NES)%>%
+  #   head(num_paths)
+  # bottom_ten_pathways <- fgsea_results %>% 
+  #   arrange(NES)%>%
+  #   tail(num_paths)
+  # pathways <- rbind(top_ten_pathways, bottom_ten_pathways)
+  pathways <- fgsea_results
+  filtered_pathways <- pathways %>% mutate(
+    plot_status = ifelse(
+      padj < padj_threshold, TRUE,
+      ifelse(
+        padj < padj_threshold, FALSE,
+        "NS")
+    ))
+  filtered_pathways_no_NA <- drop_na(filtered_pathways)
+  
+  plot <- ggplot(filtered_pathways_no_NA, aes(x = NES, y = -log10(padj), color= NES_status)) +
+    geom_point() +
+    labs(y = '-log10(padj)', x = 'NES')
+  return(plot)
+  
 }
 
