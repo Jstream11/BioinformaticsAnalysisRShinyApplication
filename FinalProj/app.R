@@ -4,11 +4,12 @@ library(ggplot2)
 library(DESeq2)
 library(knitr)
 library(gridExtra)
-
+library(shinythemes)
 
 source("main.R")
 # UI
 ui <- fluidPage(
+  theme = shinytheme("lumen"),
   titlePanel("Exploratory Data Analysis"),
   
   # Tabset
@@ -18,7 +19,7 @@ ui <- fluidPage(
     tabPanel("Sample Information Exploration",
               sidebarLayout(
                 sidebarPanel(
-                  fileInput("sample_info", "Upload Sample Information Matrix (CSV)", accept = "csv", multiple = FALSE),
+                  fileInput("sample_info", "Upload Sample Information Matrix (CSV)", accept = ".csv", multiple = FALSE),
                   width = 2
                 ),
                mainPanel(#creating subtabs
@@ -30,14 +31,15 @@ ui <- fluidPage(
                    tabPanel("Graphs",
                             sidebarLayout(
                               sidebarPanel(
-                                selectInput("plot_type", "Choose Plot Type", c("Histogram", "Violin", "Density")),
+                                #selectInput("plot_type", "Choose Plot Type", c("Histogram", "Violin", "Density")),
                                 radioButtons("plot_column", "Choose Column to Plot", ""),
-                                radioButtons("group_by_column", "Choose Column to Group By (Optional)", "")),
+                                #radioButtons("group_by_column", "Choose Column to Group By (Optional)", "")
+                                ),
                               mainPanel(plotOutput("graph_output")))
                             )
                  )
           )
-        )
+      ) 
     
     ),
     
@@ -45,23 +47,19 @@ ui <- fluidPage(
     tabPanel("Counts Matrix Exploration",
             sidebarLayout(
               sidebarPanel(
-                fileInput("counts_matrix", "Upload Normalized Counts Matrix (CSV)", multiple = FALSE),
-                width = 2
-              ),
+                fileInput("counts_matrix", "Upload Normalized Counts Matrix (CSV)", accept= ".csv", multiple = FALSE),
+                sliderInput("variance_percentile", "Variance Percentile Filter", min = 0, max = 1, value = 0.5, step = 0.1),
+                sliderInput("non_zero_threshold", "Non-Zero Samples Filter", min = 0, max = 100, value = 10),
+                width = 2),
               mainPanel(
                 #create subtabs
                 tabsetPanel(tabPanel("Counts Data Table", 
                                   dataTableOutput("countsdata_table")),
                         tabPanel("Counts Summary", 
-                                 sidebarLayout(
-                                   sidebarPanel(
-                                     sliderInput("variance_percentile", "Variance Percentile Filter", min = 0, max = 100, value = 50),
-                                     sliderInput("non_zero_threshold", "Non-Zero Samples Filter", min = 1, max = 100, value = 10)),
-                                   mainPanel(
-                                     dataTableOutput("counts_summary_table")))
+                                  dataTableOutput("counts_summary_table")
                                  ),
-                        tabPanel("Scatter Plots", plotOutput("scatters")),
-                        tabPanel("Heatmap", plotOutput("heatmap")),
+                        tabPanel("Scatter Plots", plotOutput("scatter_var"), plotOutput("scatter_zeros")),
+                        tabPanel("Heatmap", plotOutput("heatmap", width="100%", height = "400px")),
                         tabPanel("PCA",
                                  sidebarLayout(
                                    sidebarPanel(
@@ -72,8 +70,8 @@ ui <- fluidPage(
                                  )
                         )
               )
-      )
-    ),
+          )
+      ),
     
     # Differential Expression
     tabPanel("Differential Expression",
@@ -90,7 +88,7 @@ ui <- fluidPage(
                      sidebarLayout(
                        sidebarPanel(
                          radioButtons("de_plot_choice", "Choose Plot", choices = c("raw p-value histogram", "log2fc histogram", "volcano plot")),
-                         sliderInput("padj_threshold", "Choose padj threshold", min=0, max=300, value= 100)),
+                         sliderInput("padj_threshold", "Choose padj threshold", min=0, max=1, value= 0.5, step = 0.005)),
                        mainPanel(
                          plotOutput("DE_plots")))
                      )
@@ -115,7 +113,7 @@ ui <- fluidPage(
                          sliderInput("pathways_padj_threshold", "Choose padj threshold", min=0, max=1, value= 0, step=0.005),
                          width=3),
                        mainPanel(
-                         plotOutput("top_pathways_plot")))),
+                         plotOutput("top_pathways_plot", width = "100%", heigh="800px")))),
                    tabPanel(
                      "Data Table",
                      sidebarLayout(
@@ -129,7 +127,7 @@ ui <- fluidPage(
                    tabPanel("Plots",
                             sidebarLayout(
                               sidebarPanel(
-                                sliderInput("gsea_scatter_padj_threshold", "Choose padj threshold", min=0, max=1, value= 1, step = 0.005),
+                                sliderInput("gsea_scatter_padj_threshold", "Choose padj threshold", min=0, max=1, value= 0, step = 0.05),
                                 width = 3),
                               mainPanel(
                                 plotOutput("GSEA_scatter"))))
@@ -142,6 +140,7 @@ ui <- fluidPage(
 
 # Server
 server <- function(input, output, session) {
+  options(shiny.maxRequestSize = 30*1024^2)  # Set the maximum request size to 30 MB
   
 # Sample Information Exploration
   # Load and preprocess data
@@ -189,39 +188,24 @@ server <- function(input, output, session) {
     req(meta_data())
     columns <- names(meta_data())
     
-    #update choices for selectInput
-    updateRadioButtons(session, "plot_column", choices = columns)
-    updateRadioButtons(session, "group_by_column", choices = c("No Grouping", columns))
+    numeric_columns <- sapply(meta_data(), function(col) is.numeric(col) && !is.integer(col))
+    
+    # Update choices for selectInput with numeric or integer columns
+    updateRadioButtons(session, "plot_column", choices = columns[numeric_columns])
   })
 
   # create plot
   output$graph_output <- renderPlot( {
     # check if dataset and plot selections are available
-    req(meta_data(), input$plot_column, input$plot_type)
+    req(meta_data(), input$plot_column)
     
     #check if user has selected a column to plot
     if(!is.null(input$plot_column)){
       #set plot data
       plot_data <- meta_data()
       #create the appropriate plot based on the input
-      if (input$group_by_column != "No Grouping"){
-        #grouped plot
-        ggplot(plot_data, aes_string(x = input$group_by_column, y=input$plot_column)) +
-          switch(input$plot_type,
-                 "Histogram" = geom_histogram(position = "identity", binwidth = 1, fill = "blue", color = "black", alpha = 0.7),
-                 "Violin" = geom_violin(),
-                 "Density" = geom_density()) +
-          labs(title = paste("Distribution of", input$plot_column, 
-                             ifelse(input$group_by_column != "No Grouping", paste("Grouped by", input$group_by_column), "")))
-      } else{
-        #simple plot(no grouping)
-        ggplot(plot_data, aes_string(x = input$plot_column)) +
-          switch(input$plot_type,
-                 "Histogram" = geom_histogram(binwidth = 1, fill = "blue", color = "black", alpha = 0.7),
-                 "Violin" = geom_violin(),
-                 "Density" = geom_density()) +
-          labs(title = paste("Distribution of", input$plot_column))
-      }
+      ggplot(plot_data, aes_string(x = input$plot_column)) +
+             geom_density() + labs(title = paste("Distribution of", input$plot_column))
     } else {
       ggplot() + theme_minimal()
     }
@@ -242,8 +226,8 @@ server <- function(input, output, session) {
   })
   
   filtering <- reactive({
-    var_per_temp = 0.2
-    non_zero_temp = 2
+    var_per_temp = input$variance_percentile
+    non_zero_temp = input$non_zero_threshold
     filtered_counts <- counts_filter(counts_data(), var_per_temp, non_zero_temp)
     return(filtered_counts)
   })
@@ -273,16 +257,27 @@ server <- function(input, output, session) {
     return(summary_table)
   })
   
-  output$scatters <- renderPlot({
+  output$scatter_var <- renderPlot({
     plot_var <- scatter_plot_var(filtering(), counts_data())
+    return(plot_var)
+  })
+  
+  output$scatter_zeros <- renderPlot({
     plot_zeros <- scatter_plot_zeros(filtering(), counts_data())
-    combined_plot <- grid.arrange(plot_var, plot_zeros, ncol = 2)
-    
-    return(combined_plot)
+    return(plot_zeros)
   })
   
   output$heatmap <- renderPlot({
     clustered_heatmap(filtering())
+  })
+  
+  #Dynamically generate pca slider
+  observe({
+    pca <- prcomp(filtering())
+    num_components <- ncol(pca$x)
+    
+    updateSliderInput(session, "principle_component_x", min=1, max = num_components, value = 1)
+    updateSliderInput(session, "principle_component_y", min=1, max = num_components, value = 1)
   })
   
   output$pca_plot <- renderPlot({
@@ -324,9 +319,31 @@ server <- function(input, output, session) {
     return(fgsea_matrix)
   })
   
+  #Dynamically generate padj slider
+  observe({
+    data <- fgsea_data()
+    # Calculate min and max padj values
+    min_padj <- min(data$padj)
+    max_padj <- max(data$padj)
+    
+    # Update the slider input
+    updateSliderInput(session, "pathways_padj_threshold", min = min_padj, max = max_padj+0.5, value = min_padj)
+  })
+  
   output$top_pathways_plot <- renderPlot(
     return(top_pathways(fgsea_data(), input$pathways_padj_threshold))
   )
+  
+  #Dynamically generate padj slider
+  observe({
+    data <- fgsea_data()
+    # Calculate min and max padj values
+    min_padj <- min(data$padj)
+    max_padj <- max(data$padj)
+    
+    # Update the slider input
+    updateSliderInput(session, "gsea_dt_padj_threshold", min = min_padj, max = max_padj+0.5, value = min_padj)
+  })
   
   output$GSEA_table <- renderDataTable({
     filtered_pathways <- pathway_filter(fgsea_data(), input$gsea_dt_padj_threshold, input$NES_status)
@@ -344,6 +361,17 @@ server <- function(input, output, session) {
       write.csv(filtered_pathways, file)
     }
   )
+  
+  #Dynamically generate padj slider
+  observe({
+    data <- fgsea_data()
+    # Calculate min and max padj values
+    min_padj <- min(data$padj)
+    max_padj <- max(data$padj)
+    
+    # Update the slider input
+    updateSliderInput(session, "gsea_scatter_padj_threshold", min = min_padj, max = max_padj+0.5, value = min_padj)
+  })
   
   output$GSEA_scatter <- renderPlot({
     plot_data <- fgsea_data()

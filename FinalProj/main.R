@@ -34,16 +34,20 @@ scatter_plot_var <- function(filtered_counts_matrix, counts_df){
   #adding column with filtered status
   filtered_genes <- rownames(counts_matrix)[!(rownames(counts_matrix) %in% rownames(filtered_counts_matrix))]
   counts_matrix <- as.data.frame(counts_matrix)
-  counts_matrix$filtered_status <- ifelse(rownames(counts_matrix) %in% filtered_genes, "Filtered Out", "Not Filtered")
+  counts_matrix$filtered_status <- ifelse(rownames(counts_matrix) %in% filtered_genes, "Passed Filtering", "Filtered Out")
   
   #calculating variance and medians
   variance <- apply(counts_matrix[, 1:(ncol(counts_matrix) - 1)], 1, var)
   gene_medians <- apply (counts_matrix[, 1:(ncol(counts_matrix) - 1)], 1, median)
+  log_10_var <- log10(variance)
   
   #creating plot
-  plot <- ggplot(counts_matrix, aes(x = gene_medians, y = log10(variance), color=filtered_status)) +
-    geom_jitter() +
-    labs(title = "Gene count median vs. Log10(gene variance)", y = 'log10(variance)', x = 'count median') 
+  plot <- ggplot(counts_matrix, aes(x = gene_medians, y = log_10_var, color=filtered_status)) +
+    geom_point() +
+    labs(title = "Gene count median vs. Log10(gene variance)", y = 'log10(variance)', x = 'count median')+
+    scale_y_log10() +
+    xlim(NA, 20000) +
+    scale_color_manual(values = c("Passed Filtering"="skyblue", "Filtered Out"="grey"))
   return(plot)
 }
 
@@ -59,7 +63,7 @@ scatter_plot_zeros <- function(filtered_counts_matrix, counts_df){
   #adding column with filtered status
   filtered_genes <- rownames(counts_matrix)[!(rownames(counts_matrix) %in% rownames(filtered_counts_matrix))]
   counts_matrix <- as.data.frame(counts_matrix)
-  counts_matrix$filtered_status <- ifelse(rownames(counts_matrix) %in% filtered_genes, "Filtered Out", "Not Filtered")
+  counts_matrix$filtered_status <- ifelse(rownames(counts_matrix) %in% filtered_genes, "Passed Filtering", "Filtered Out")
   
   #calculating number of zeros/gene and medians
   n_zeros <- rowSums(counts_matrix[, 1:(ncol(counts_matrix) - 1)] == 0)
@@ -68,20 +72,29 @@ scatter_plot_zeros <- function(filtered_counts_matrix, counts_df){
   #creating plot
   plot <- ggplot(counts_matrix, aes(x = gene_medians, y = n_zeros, color=filtered_status)) +
     geom_jitter() +
-    labs(title = 'Gene count median vs. Number of Zero Measured Samples in Gene', y = 'number of zeros', x = 'count median') 
+    labs(title = 'Gene count median vs. Number of Zero Measured Samples in Gene', y = 'number of zeros', x = 'count median') +
+    xlim(NA, 20000) +
+    scale_color_manual(values = c("Passed Filtering"="skyblue", "Filtered Out"="grey"))
   return(plot)
 }
 
 clustered_heatmap <- function(filtered_counts_matrix){
   library(gplots)
   filtered_counts_matrix <- log2(filtered_counts_matrix + 1)
-  heatmap.2(filtered_counts_matrix,
-            xlab = "Sample",
-            ylab = "Gene"
+  heatmap.2(
+    filtered_counts_matrix,
+    xlab = "Sample",
+    ylab = "Gene",
+    margins = c(5, 10),  # Adjust the bottom and right margins
+    cexCol = 0.6,        # Adjust the size of the column labels
+    cexRow = 0.6,        # Adjust the size of the row labels
+    trace = "none",      # Do not add trace lines
+    col = heat.colors(256) # Adjust the color scale as needed
   )
 }
 
 plot_pca <- function(filtered_counts_matrix, x, y) {
+  library(scales)
   #Allow the user to select which principal components to plot (e.g., PC1 vs PC2) or plot the top N principal components as a beeswarm plot.
   #Include the % variance explained by each component in the plot labels.
   # prcomp performs PCA
@@ -92,10 +105,16 @@ plot_pca <- function(filtered_counts_matrix, x, y) {
   pc_x <- pca$x[, x]
   pc_y <- pca$x[, y]
   
+  # Extract the % variance explained by each component
+  var_explained_x <- summary(pca)$importance[3, x]
+  var_explained_y <- summary(pca)$importance[3, y]
+  
   # Create a scatter plot of the PC1 and PC2 projections
   plot <- ggplot(filtered_counts_df, aes(x = pc_x, y = pc_y)) +
     geom_point() +
-    labs(x = paste("PC", x), y = paste("PC", y), title = "PCA Projections of Filtered Counts Matrix")
+    labs(x = paste("PC", x, ", Variance Explained:", percent(var_explained_x)),
+         y = paste("PC", y, ", Variance Explained:", percent(var_explained_y)),
+         title = "PCA Projections of Filtered Counts Matrix")
   
   return(plot)
 }
@@ -106,7 +125,7 @@ plot_pvals <- function(de_data) {
   de_data <- as.data.frame(de_data)
   plot <- ggplot(de_data, aes(x = pvalue)) +
     geom_histogram(fill = "skyblue", color = "blue", binwidth=0.02) +
-    labs(title = 'Histogram of raw p-values obtained from DE analysis (vP0 vs vAd)')
+    labs(title = 'Histogram of raw p-values obtained from DE analysis')
   
   return(plot)
 }
@@ -118,7 +137,7 @@ plot_log2fc <- function(de_data, padj_threshold) {
     filter(padj<padj_threshold)
   plot <- ggplot(de_data_filtered, aes(x = log2FoldChange)) +
     geom_histogram(fill = "skyblue", color = "blue", binwidth = 0.2) +
-    labs(title = 'Histogram of Log2FoldChange obtained from DE analysis (vP0 vs vAd)')
+    labs(title = 'Histogram of Log2FoldChange obtained from DE analysis')
   return(plot)
 }
 
@@ -135,7 +154,7 @@ plot_volcano <- function(de_data, padj_threshold){
   
   plot <- ggplot(results_no_NA, aes(x = log2FoldChange, y = -log10(padj), color=volc_plot_status)) +
     geom_point() +
-    labs(title = 'Volcano Plot of DESeq2 differential expression results (vP0 vs. vAd)', y = '-log10(padj)', x = 'log2FoldChange')
+    labs(title = 'Volcano Plot of DESeq2 differential expression results', y = '-log10(padj)', x = 'log2FoldChange')
   return(plot)
 }
 
@@ -184,11 +203,12 @@ pathway_filter <- function(fgsea_results, padj_threshold, NES_status){
     tail(num_paths)
   pathways <- rbind(top_ten_pathways, bottom_ten_pathways)
   
-  filtered_pathways <- pathways %>% 
-    filter(padj<padj_threshold) 
-  
   if (NES_status != "all"){
-    filtered_pathways <- pathways %>% filter(NES_plot_status == NES_status)
+    filtered_pathways <- pathways %>% filter(NES_plot_status == NES_status) %>%
+      filter(padj<padj_threshold)
+  }else{
+    filtered_pathways <- pathways %>% 
+      filter(padj<padj_threshold)
   }
   return(filtered_pathways)
 }
@@ -206,16 +226,14 @@ gsea_scatter <- function(fgsea_results, padj_threshold){
   pathways <- fgsea_results
   filtered_pathways <- pathways %>% mutate(
     plot_status = ifelse(
-      padj < padj_threshold, TRUE,
-      ifelse(
-        padj < padj_threshold, FALSE,
-        "NS")
-    ))
+      padj < padj_threshold, "TRUE", "FALSE")
+    )
   filtered_pathways_no_NA <- drop_na(filtered_pathways)
   
-  plot <- ggplot(filtered_pathways_no_NA, aes(x = NES, y = -log10(padj), color= NES_status)) +
+  plot <- ggplot(filtered_pathways_no_NA, aes(x = NES, y = -log10(padj), color= plot_status)) +
     geom_point() +
-    labs(y = '-log10(padj)', x = 'NES')
+    labs(y = '-log10(padj)', x = 'NES', color=paste("padj <", padj_threshold)) +
+    scale_color_manual(values = c("TRUE"="skyblue", "FALSE"="grey"))
   return(plot)
   
 }
